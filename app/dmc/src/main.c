@@ -478,9 +478,10 @@ int main(void)
 
 	uint16_t max_power = detect_max_power();
 
-	while (true) {
-		tt_event_wait(TT_EVENT_WAKE, K_MSEC(20));
+	/* Trigger immediately the first time, subsequently 20ms. */
+	k_timepoint_t slow_code = sys_timepoint_calc(K_NO_WAIT);
 
+	while (true) {
 		/* handler for therm trip */
 		ARRAY_FOR_EACH_PTR(BH_CHIPS, chip) {
 			if (chip->data.therm_trip_triggered) {
@@ -597,33 +598,37 @@ int main(void)
 			ina228_power_update();
 		}
 
-		if (DT_NODE_HAS_STATUS(DT_ALIAS(fan0), okay)) {
-			uint16_t rpm;
-			struct sensor_value data;
+		if (sys_timepoint_expired(slow_code)) {
+			if (DT_NODE_HAS_STATUS(DT_ALIAS(fan0), okay)) {
+				uint16_t rpm;
+				struct sensor_value data;
 
-			sensor_sample_fetch_chan(max6639_sensor_dev, MAX6639_CHAN_1_RPM);
-			sensor_channel_get(max6639_sensor_dev, MAX6639_CHAN_1_RPM, &data);
+				sensor_sample_fetch_chan(max6639_sensor_dev, MAX6639_CHAN_1_RPM);
+				sensor_channel_get(max6639_sensor_dev, MAX6639_CHAN_1_RPM, &data);
 
-			rpm = (uint16_t)data.val1;
+				rpm = (uint16_t)data.val1;
+
+				ARRAY_FOR_EACH_PTR(BH_CHIPS, chip) {
+					bh_chip_set_fan_rpm(chip, rpm);
+				}
+
+				if (forced_fan_speed != 0) {
+					pwm_set_cycles(max6639_pwm_dev, 0, UINT8_MAX, forced_fan_speed, 0);
+				} else {
+					uint8_t max_fan_speed = auto_fan_speed[0];
+
+					if (BH_CHIP_COUNT == 2) {
+						max_fan_speed = MAX(auto_fan_speed[0], auto_fan_speed[1]);
+					}
+					pwm_set_cycles(max6639_pwm_dev, 0, UINT8_MAX, max_fan_speed, 0);
+				}
+			}
 
 			ARRAY_FOR_EACH_PTR(BH_CHIPS, chip) {
-				bh_chip_set_fan_rpm(chip, rpm);
+				process_cm2dm_message(chip);
 			}
 
-			if (forced_fan_speed != 0) {
-				pwm_set_cycles(max6639_pwm_dev, 0, UINT8_MAX, forced_fan_speed, 0);
-			} else {
-				uint8_t max_fan_speed = auto_fan_speed[0];
-
-				if (BH_CHIP_COUNT == 2) {
-					max_fan_speed = MAX(auto_fan_speed[0], auto_fan_speed[1]);
-				}
-				pwm_set_cycles(max6639_pwm_dev, 0, UINT8_MAX, max_fan_speed, 0);
-			}
-		}
-
-		ARRAY_FOR_EACH_PTR(BH_CHIPS, chip) {
-			process_cm2dm_message(chip);
+			slow_code = sys_timepoint_calc(K_MSEC(20));
 		}
 
 		/*
