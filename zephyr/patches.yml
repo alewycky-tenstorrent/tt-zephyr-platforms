@@ -142,3 +142,9 @@ patches:
     author: Andrew Lewycky
     email: alewycky@tenstorrent.com
     date: 2025-06-16
+  - path: zephyr/stm32-block-read.patch
+    sha256sum: 9336dcc6b1cb493fa5d2d6406f3cbc4c27f10331951aadd029c1cf7b4d4ca2db
+    module: zephyr
+    author: Andrew Lewycky
+    email: alewycky@tenstorrent.com
+    date: 2025-06-19
