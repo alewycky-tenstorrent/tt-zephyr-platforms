@@ -38,7 +38,7 @@ typedef int (*jtag_axi_write32_api_t)(const struct device *dev, uint32_t addr, u
 typedef int (*jtag_axi_block_write_api_t)(const struct device *dev, uint32_t addr,
 					  const uint32_t *value, uint32_t len);
 
-struct jtag_api {
+__subsystem struct jtag_driver_api {
 	jtag_setup_api_t setup;
 	jtag_teardown_api_t teardown;
 
@@ -56,20 +56,16 @@ struct jtag_api {
 
 static inline int jtag_tick(const struct device *dev, uint32_t count)
 {
-	const struct jtag_api *api = dev->api;
-
-	if (dev == NULL) {
-		return -EINVAL;
-	}
+	const struct jtag_driver_api *api = DEVICE_API_GET(jtag, dev);
 
 	return api->tick(dev, count);
 }
 
 static inline int jtag_read_id(const struct device *dev, uint32_t *id)
 {
-	const struct jtag_api *api = dev->api;
+	const struct jtag_driver_api *api = DEVICE_API_GET(jtag, dev);
 
-	if (dev == NULL || id == NULL) {
+	if (id == NULL) {
 		return -EINVAL;
 	}
 
@@ -78,11 +74,7 @@ static inline int jtag_read_id(const struct device *dev, uint32_t *id)
 
 static inline int jtag_reset(const struct device *dev)
 {
-	const struct jtag_api *api = dev->api;
-
-	if (dev == NULL) {
-		return -EINVAL;
-	}
+	const struct jtag_driver_api *api = DEVICE_API_GET(jtag, dev);
 
 	return api->reset(dev);
 }
@@ -90,9 +82,9 @@ static inline int jtag_reset(const struct device *dev)
 static ALWAYS_INLINE int jtag_update_ir(const struct device *dev, uint32_t count,
 					const uint8_t *data)
 {
-	const struct jtag_api *api = dev->api;
+	const struct jtag_driver_api *api = DEVICE_API_GET(jtag, dev);
 
-	if (dev == NULL || (data == NULL && count > 0)) {
+	if (data == NULL && count > 0) {
 		return -EINVAL;
 	}
 
@@ -106,9 +98,9 @@ static ALWAYS_INLINE int jtag_update_ir(const struct device *dev, uint32_t count
 static ALWAYS_INLINE int jtag_update_dr(const struct device *dev, bool idle, uint32_t count,
 					const uint8_t *data_in, uint8_t *data_out)
 {
-	const struct jtag_api *api = dev->api;
+	const struct jtag_driver_api *api = DEVICE_API_GET(jtag, dev);
 
-	if (dev == NULL || (data_in == NULL && count > 0)) {
+	if (data_in == NULL && count > 0) {
 		return -EINVAL;
 	}
 
@@ -121,44 +113,28 @@ static ALWAYS_INLINE int jtag_update_dr(const struct device *dev, bool idle, uin
 
 static inline int jtag_setup(const struct device *dev)
 {
-	const struct jtag_api *api = dev->api;
-
-	if (dev == NULL) {
-		return -EINVAL;
-	}
+	const struct jtag_driver_api *api = DEVICE_API_GET(jtag, dev);
 
 	return api->setup(dev);
 }
 
 static inline int jtag_teardown(const struct device *dev)
 {
-	const struct jtag_api *api = dev->api;
-
-	if (dev == NULL) {
-		return -EINVAL;
-	}
+	const struct jtag_driver_api *api = DEVICE_API_GET(jtag, dev);
 
 	return api->teardown(dev);
 }
 
 static inline int jtag_axi_read32(const struct device *dev, uint32_t addr, uint32_t *value)
 {
-	const struct jtag_api *api = dev->api;
-
-	if (dev == NULL) {
-		return -EINVAL;
-	}
+	const struct jtag_driver_api *api = DEVICE_API_GET(jtag, dev);
 
 	return api->axi_read32(dev, addr, value);
 }
 
 static inline int jtag_axi_write32(const struct device *dev, uint32_t addr, uint32_t value)
 {
-	const struct jtag_api *api = dev->api;
-
-	if (dev == NULL) {
-		return -EINVAL;
-	}
+	const struct jtag_driver_api *api = DEVICE_API_GET(jtag, dev);
 
 	return api->axi_write32(dev, addr, value);
 }
@@ -166,11 +142,7 @@ static inline int jtag_axi_write32(const struct device *dev, uint32_t addr, uint
 static inline int jtag_axi_block_write(const struct device *dev, uint32_t addr,
 				       const uint32_t *value, uint32_t len)
 {
-	const struct jtag_api *api = dev->api;
-
-	if (dev == NULL) {
-		return -EINVAL;
-	}
+	const struct jtag_driver_api *api = DEVICE_API_GET(jtag, dev);
 
 	return api->axi_block_write(dev, addr, value, len);
 }

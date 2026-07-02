@@ -485,13 +485,13 @@ int jtag_axi_blockwrite(const struct device *dev, uint32_t addr, const uint32_t 
 	return result;
 }
 
-static struct jtag_api jtag_bitbang_api = {.setup = jtag_bitbang_setup,
-					   .teardown = jtag_bitbang_teardown,
-					   .read_id = jtag_bitbang_read_id,
-					   .reset = jtag_bitbang_reset,
-					   .axi_read32 = jtag_axiread,
-					   .axi_write32 = jtag_axiwrite,
-					   .axi_block_write = jtag_axi_blockwrite};
+static DEVICE_API(jtag, jtag_bitbang_api) = {.setup = jtag_bitbang_setup,
+					     .teardown = jtag_bitbang_teardown,
+					     .read_id = jtag_bitbang_read_id,
+					     .reset = jtag_bitbang_reset,
+					     .axi_read32 = jtag_axiread,
+					     .axi_write32 = jtag_axiwrite,
+					     .axi_block_write = jtag_axi_blockwrite};
 
 static int jtag_bitbang_init(const struct device *dev)
 {
