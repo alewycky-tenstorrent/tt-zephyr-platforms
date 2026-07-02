@@ -9,3 +9,7 @@ project(dmc)
 
 FILE(GLOB app_sources src/*.c)
 target_sources(app PRIVATE ${app_sources})
+
+# C++ header soak test: proves the Zephyr and tt-system-firmware headers we
+# use are C++-clean.
+target_sources(app PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../cpp_header_soak.cpp)

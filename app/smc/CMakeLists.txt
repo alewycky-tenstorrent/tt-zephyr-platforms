@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.13.1)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
-project(app LANGUAGES C)
+project(app LANGUAGES C CXX)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/git_version.cmake)
 
@@ -15,3 +15,7 @@ if(CONFIG_BH_FWTABLE)
 endif()
 
 target_sources(app PRIVATE src/main.c)
+
+# C++ header soak test: proves the Zephyr and tt-system-firmware headers we
+# use are C++-clean.
+target_sources(app PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../cpp_header_soak.cpp)
