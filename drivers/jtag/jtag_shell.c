@@ -52,10 +52,10 @@ static const struct device *get_jtag_dev(char *name)
 static int cmd_jtag_tick(const struct shell *sh, size_t argc, char **argv, void *data)
 {
 	uint32_t count = 1;
-	const struct device *dev = get_jtag_dev(argv[2]);
+	const struct device *dev = get_jtag_dev(argv[1]);
 
 	if (dev == NULL) {
-		shell_error(sh, "JTAG device '%s' not found", argv[2]);
+		shell_error(sh, "JTAG device '%s' not found", argv[1]);
 		return -ENODEV;
 	}
 
@@ -71,10 +71,10 @@ static int cmd_jtag_tick(const struct shell *sh, size_t argc, char **argv, void 
 static int cmd_jtag_read_id(const struct shell *sh, size_t argc, char **argv, void *data)
 {
 	uint32_t id = 0;
-	const struct device *dev = get_jtag_dev(argv[2]);
+	const struct device *dev = get_jtag_dev(argv[1]);
 
 	if (dev == NULL) {
-		shell_error(sh, "JTAG device '%s' not found", argv[2]);
+		shell_error(sh, "JTAG device '%s' not found", argv[1]);
 		return -ENODEV;
 	}
 
@@ -87,10 +87,10 @@ static int cmd_jtag_read_id(const struct shell *sh, size_t argc, char **argv, vo
 
 static int cmd_jtag_reset(const struct shell *sh, size_t argc, char **argv, void *data)
 {
-	const struct device *dev = get_jtag_dev(argv[2]);
+	const struct device *dev = get_jtag_dev(argv[1]);
 
 	if (dev == NULL) {
-		shell_error(sh, "JTAG device '%s' not found", argv[2]);
+		shell_error(sh, "JTAG device '%s' not found", argv[1]);
 		return -ENODEV;
 	}
 
@@ -103,10 +103,10 @@ static int cmd_jtag_ir(const struct shell *sh, size_t argc, char **argv, void *d
 {
 	uint32_t count = 0;
 	uint32_t data_in[ARBITRARY_LIMIT];
-	const struct device *dev = get_jtag_dev(argv[2]);
+	const struct device *dev = get_jtag_dev(argv[1]);
 
 	if (dev == NULL) {
-		shell_error(sh, "JTAG device '%s' not found", argv[2]);
+		shell_error(sh, "JTAG device '%s' not found", argv[1]);
 		return -ENODEV;
 	}
 
@@ -126,10 +126,10 @@ static int cmd_jtag_dr(const struct shell *sh, size_t argc, char **argv, void *d
 	uint32_t count = 0;
 	uint32_t data_in[ARBITRARY_LIMIT];
 	uint32_t data_out[ARBITRARY_LIMIT] = {0};
-	const struct device *dev = get_jtag_dev(argv[2]);
+	const struct device *dev = get_jtag_dev(argv[1]);
 
 	if (dev == NULL) {
-		shell_error(sh, "JTAG device '%s' not found", argv[2]);
+		shell_error(sh, "JTAG device '%s' not found", argv[1]);
 		return -ENODEV;
 	}
 
@@ -137,7 +137,7 @@ static int cmd_jtag_dr(const struct shell *sh, size_t argc, char **argv, void *d
 
 	count = MIN(argc - 3, ARRAY_SIZE(data_in));
 	for (uint32_t i = 0; i < count; i++) {
-		data_in[i] = strtoul(argv[i + 2], NULL, 0);
+		data_in[i] = strtoul(argv[i + 3], NULL, 0);
 	}
 
 	jtag_update_dr(dev, idle, count, (uint8_t *)data_in, (uint8_t *)data_out);
@@ -169,7 +169,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      cmd_jtag_ir, 2, ARBITRARY_LIMIT),
 	SHELL_CMD_ARG(dr, &sub_jtag_dev,
 		      "Update JTAG DR\n"
-		      "Usage: jtag dr [device] <idle> [<word0> <word1> ..]\n"
+		      "Usage: jtag dr <device> <idle> [<word0> <word1> ..]\n"
 		      "<idle> - a non-zero integer to set the device back to idle\n"
 		      "<word0> - 32-bit word (decimal or hex)",
 		      cmd_jtag_dr, 3, ARBITRARY_LIMIT),
