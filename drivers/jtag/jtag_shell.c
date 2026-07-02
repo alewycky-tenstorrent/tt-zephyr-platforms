@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <errno.h>
 #include <stdlib.h>
 
 #include <zephyr/drivers/jtag.h>
@@ -53,6 +54,11 @@ static int cmd_jtag_tick(const struct shell *sh, size_t argc, char **argv, void 
 	uint32_t count = 1;
 	const struct device *dev = get_jtag_dev(argv[2]);
 
+	if (dev == NULL) {
+		shell_error(sh, "JTAG device '%s' not found", argv[2]);
+		return -ENODEV;
+	}
+
 	if (argc >= 3) {
 		count = strtoul(argv[2], NULL, 0);
 	}
@@ -67,6 +73,11 @@ static int cmd_jtag_read_id(const struct shell *sh, size_t argc, char **argv, vo
 	uint32_t id = 0;
 	const struct device *dev = get_jtag_dev(argv[2]);
 
+	if (dev == NULL) {
+		shell_error(sh, "JTAG device '%s' not found", argv[2]);
+		return -ENODEV;
+	}
+
 	jtag_read_id(dev, &id);
 
 	shell_print(sh, "ID: 0x%08x", id);
@@ -78,6 +89,11 @@ static int cmd_jtag_reset(const struct shell *sh, size_t argc, char **argv, void
 {
 	const struct device *dev = get_jtag_dev(argv[2]);
 
+	if (dev == NULL) {
+		shell_error(sh, "JTAG device '%s' not found", argv[2]);
+		return -ENODEV;
+	}
+
 	jtag_reset(dev);
 
 	return 0;
@@ -88,6 +104,11 @@ static int cmd_jtag_ir(const struct shell *sh, size_t argc, char **argv, void *d
 	uint32_t count = 0;
 	uint32_t data_in[ARBITRARY_LIMIT];
 	const struct device *dev = get_jtag_dev(argv[2]);
+
+	if (dev == NULL) {
+		shell_error(sh, "JTAG device '%s' not found", argv[2]);
+		return -ENODEV;
+	}
 
 	count = MIN(argc - 2, ARRAY_SIZE(data_in));
 	for (uint32_t i = 0; i < count; i++) {
@@ -106,6 +127,11 @@ static int cmd_jtag_dr(const struct shell *sh, size_t argc, char **argv, void *d
 	uint32_t data_in[ARBITRARY_LIMIT];
 	uint32_t data_out[ARBITRARY_LIMIT] = {0};
 	const struct device *dev = get_jtag_dev(argv[2]);
+
+	if (dev == NULL) {
+		shell_error(sh, "JTAG device '%s' not found", argv[2]);
+		return -ENODEV;
+	}
 
 	idle = strtoul(argv[2], NULL, 0);
 
