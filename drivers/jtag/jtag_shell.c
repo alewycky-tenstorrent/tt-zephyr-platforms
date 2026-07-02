@@ -49,7 +49,7 @@ static const struct device *get_jtag_dev(char *name)
 	return NULL;
 }
 
-static int cmd_jtag_tick(const struct shell *sh, size_t argc, char **argv, void *data)
+static int cmd_jtag_tick(const struct shell *sh, size_t argc, char **argv)
 {
 	uint32_t count = 1;
 	const struct device *dev = get_jtag_dev(argv[1]);
@@ -68,7 +68,7 @@ static int cmd_jtag_tick(const struct shell *sh, size_t argc, char **argv, void 
 	return 0;
 }
 
-static int cmd_jtag_read_id(const struct shell *sh, size_t argc, char **argv, void *data)
+static int cmd_jtag_read_id(const struct shell *sh, size_t argc, char **argv)
 {
 	uint32_t id = 0;
 	const struct device *dev = get_jtag_dev(argv[1]);
@@ -85,7 +85,7 @@ static int cmd_jtag_read_id(const struct shell *sh, size_t argc, char **argv, vo
 	return 0;
 }
 
-static int cmd_jtag_reset(const struct shell *sh, size_t argc, char **argv, void *data)
+static int cmd_jtag_reset(const struct shell *sh, size_t argc, char **argv)
 {
 	const struct device *dev = get_jtag_dev(argv[1]);
 
@@ -99,7 +99,7 @@ static int cmd_jtag_reset(const struct shell *sh, size_t argc, char **argv, void
 	return 0;
 }
 
-static int cmd_jtag_ir(const struct shell *sh, size_t argc, char **argv, void *data)
+static int cmd_jtag_ir(const struct shell *sh, size_t argc, char **argv)
 {
 	uint32_t count = 0;
 	uint32_t data_in[ARBITRARY_LIMIT];
@@ -120,7 +120,7 @@ static int cmd_jtag_ir(const struct shell *sh, size_t argc, char **argv, void *d
 	return 0;
 }
 
-static int cmd_jtag_dr(const struct shell *sh, size_t argc, char **argv, void *data)
+static int cmd_jtag_dr(const struct shell *sh, size_t argc, char **argv)
 {
 	bool idle = false;
 	uint32_t count = 0;
