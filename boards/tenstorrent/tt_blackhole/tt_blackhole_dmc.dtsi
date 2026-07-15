@@ -179,7 +179,6 @@
 		has-dpd;
 		t-enter-dpd = <3000>;
 		t-exit-dpd = <30000>;
-		jedec-id = [20 bb 20];
 		/* Use 4-byte-address commands instead of switching to 4-byte
 		 * address mode, since the bootrom assumes 3-byte address mode
 		 * on non-Micron parts.

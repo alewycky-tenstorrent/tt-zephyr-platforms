@@ -23,7 +23,7 @@ manifest:
     - name: zephyr
       remote: tenstorrent
       repo-path: zephyr-fork
-      revision: 3d6af87a30854fa15ff64fe883e54a0bae469210
+      revision: 11809806a83332828ab735d40b04ec5a876b9896
       import:
         name-allowlist:
           - cmsis_6
