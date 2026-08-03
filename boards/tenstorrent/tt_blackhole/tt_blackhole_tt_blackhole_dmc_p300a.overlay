@@ -171,9 +171,6 @@
 		spi-cpol;
 		spi-cpha;
 
-		/* jedec,spi-nor properties */
-		size = <DT_SIZE_M(512)>; /* Size in bits */
-
 		/* jedec,spi-nor-common properties */
 		has-dpd;
 		t-enter-dpd = <3000>;
