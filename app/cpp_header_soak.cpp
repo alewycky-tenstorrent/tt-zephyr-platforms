@@ -24,9 +24,17 @@
  *          dm_test_app (not SMC/DMC); it is config-gated behind
  *          CONFIG_I3C_TARGET and does not compile in this configuration in C
  *          either.
+ *        - <zephyr/drivers/pmci/pldm/pldm_oem_handler.h>,
+ *          <zephyr/pmci/mctp/mctp_i3c_target.h> and
+ *          <zephyr/shell/shell_dummy.h>: used only by drivers/pmci/pldm, which
+ *          is gated behind CONFIG_PLDM. The first two pull in <libpldm/base.h>
+ *          and <libmctp.h>, whose module include paths are only added when that
+ *          config is on; the third needs CONFIG_SHELL_BACKEND_DUMMY_BUF_SIZE,
+ *          which only exists once CONFIG_TT_PMCI_PLDM_SHELL selects the dummy
+ *          backend. None of the three compile here in C either.
  *
  *   2. Every public library header we expose under include/tenstorrent/:
- *        ls include/tenstorrent/*.h
+ *        ls include/tenstorrent | grep '\.h$'
  *      Excluded:
  *        - <tenstorrent/uart_tt_virt.h>: its inline helpers use C11
  *          <stdatomic.h> (atomic_uint, atomic_compare_exchange_strong), which
@@ -42,6 +50,8 @@
 
 #include <zephyr/app_version.h>
 #include <zephyr/arch/common/ffs.h>
+#include <zephyr/arch/common/sys_bitops.h>
+#include <zephyr/arch/cpu.h>
 #include <zephyr/bindesc.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -63,8 +73,10 @@
 #include <zephyr/drivers/misc/bh_efuse.h>
 #include <zephyr/drivers/misc/bh_fwtable.h>
 #include <zephyr/drivers/mspi.h>
+#include <zephyr/drivers/pinctrl.h>
 #include <zephyr/drivers/pwm.h>
 #include <zephyr/drivers/reset.h>
+#include <zephyr/drivers/reset/reset_tt_bh.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/sensor/tenstorrent/pvt_tt_bh.h>
 #include <zephyr/drivers/smbus.h>
@@ -72,6 +84,8 @@
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/pinctrl/tt_blackhole_smc-pinctrl.h>
+#include <zephyr/dt-bindings/reset/tt-bh-reset.h>
 #include <zephyr/init.h>
 #include <zephyr/irq.h>
 #include <zephyr/kernel.h>
@@ -80,6 +94,7 @@
 #include <zephyr/logging/log_backend_std.h>
 #include <zephyr/logging/log_core.h>
 #include <zephyr/logging/log_ctrl.h>
+#include <zephyr/logging/log_msg.h>
 #include <zephyr/logging/log_output.h>
 #include <zephyr/rtio/rtio.h>
 #include <zephyr/rtio/work.h>
@@ -103,6 +118,7 @@
 #include <zephyr/sys_clock.h>
 #include <zephyr/toolchain.h>
 #include <zephyr/tracing/tracing.h>
+#include <zephyr/types.h>
 #include <zephyr/version.h>
 #include <zephyr/zbus/zbus.h>
 
