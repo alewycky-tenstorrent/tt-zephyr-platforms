@@ -1,0 +1,11 @@
+/*
+ * Copyright (c) 2026 Tenstorrent AI ULC
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* This board was qualified with the MT25Q, but support any flash part by
+ * falling back to stanard SPI. Include this before any partition
+ * adjustments, as it recreates the partitions.
+ */
+#include "tt_blackhole_smc_flash_mux.dtsi"
