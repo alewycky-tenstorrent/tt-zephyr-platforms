@@ -1,0 +1,76 @@
+/*
+ * Copyright (c) 2026 Tenstorrent AI ULC
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/*
+ * Second-source flash support, for board revisions that fit parts other
+ * than the MT25Q. Adds a fast candidate configuration for each of them to
+ * the flash mux, ahead of its standard SPI fallback. Include from a board
+ * revision overlay, before any partition adjustments.
+ */
+
+#include "tt_blackhole_smc_flash_mux.dtsi"
+
+&spi0 {
+	flash_mx25u: mx25u@0 {
+		TT_SPI_FLASH_COMMON
+		jedec-id = [c2 25 3a]; /* Macronix MX25U51245G */
+		mspi-io-mode = "MSPI_IO_MODE_QUAD_1_4_4";
+		/* Quad commands are ignored unless the non-volatile QE bit
+		 * is set; it is written on first boot and only read
+		 * thereafter.
+		 */
+		quad-enable-requirements = "S1B6";
+		read-command = <0xec>;
+		/* Fixed 6 cycles between address and data: a mode byte in
+		 * the first 2, then 4 dummy cycles.
+		 */
+		rx-mode-cycles = <2>;
+		rx-dummy = <4>;
+		write-command = <0x3e>;
+	};
+
+	flash_gd25lf: gd25lf@0 {
+		TT_SPI_FLASH_COMMON
+		jedec-id = [c8 63 1a]; /* GigaDevice GD25LF512MF */
+		mspi-io-mode = "MSPI_IO_MODE_QUAD_1_4_4";
+		quad-enable-requirements = "NONE"; /* no QE bit */
+		read-command = <0xec>;
+		/* Factory-default read latency (DC=0 in SR3): a mode byte in
+		 * the first 2 cycles, then 4 dummy cycles. A chip whose
+		 * non-volatile DC bits were reconfigured for 8 or 10 cycles
+		 * is not supported.
+		 */
+		rx-mode-cycles = <2>;
+		rx-dummy = <4>;
+		/* No 3Eh (1-4-4) page program; use 34h (1-1-4). Only the
+		 * address phase is slower; page program time dominates.
+		 */
+		write-command = <0x34>;
+		write-io-mode = "MSPI_IO_MODE_QUAD_1_1_4";
+	};
+
+	flash_w25q: w25q@0 {
+		TT_SPI_FLASH_COMMON
+		jedec-id = [ef 60 20]; /* Winbond W25Q51RW-Q/-N, W25Q512NW-IQ/IN */
+		mspi-io-mode = "MSPI_IO_MODE_QUAD_1_4_4";
+		/* QE is non-volatile and factory-set on the supported
+		 * variants; the driver repairs a part that arrives with it
+		 * cleared.
+		 */
+		quad-enable-requirements = "S2B1v6";
+		read-command = <0xec>;
+		/* A mode byte in the first 2 cycles, then 4 dummy cycles */
+		rx-mode-cycles = <2>;
+		rx-dummy = <4>;
+		write-command = <0x34>; /* no 3Eh (1-4-4); 34h (1-1-4) */
+		write-io-mode = "MSPI_IO_MODE_QUAD_1_1_4";
+	};
+};
+
+&spi_flash {
+	flash-devices = <&flash_mt25q &flash_mx25u &flash_gd25lf
+			 &flash_w25q &flash_single_io>;
+};

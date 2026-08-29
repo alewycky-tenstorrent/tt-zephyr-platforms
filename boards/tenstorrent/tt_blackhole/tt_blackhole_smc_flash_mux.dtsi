@@ -5,10 +5,14 @@
  */
 
 /*
- * Second-source flash support, for board revisions that fit parts other
- * than the MT25Q. Replaces the spi_flash chip node with one candidate
- * configuration per supported chip and a mux that selects among them at
- * boot. Include from a board revision overlay, before any partition
+ * Runtime-selected flash configuration. Replaces the spi_flash chip node
+ * with one candidate configuration per supported chip and a mux that
+ * selects among them at boot: the MT25Q that every board revision was
+ * qualified with, plus a standard SPI fallback that accepts anything
+ * else. tt_blackhole_smc_flash_second_source.dtsi adds fast
+ * configurations for the other qualified parts.
+ *
+ * Include from a board revision overlay, before any partition
  * adjustments.
  */
 
@@ -43,9 +47,6 @@
 	 * at boot; the driver's jedec-id check fails initialization for
 	 * every candidate but the one matching the fitted chip, and the
 	 * spi_flash mux then selects the first that succeeded.
-	 * flash_single_io omits jedec-id and so accepts any chip, as a slow
-	 * universal fallback that keeps an unrecognized chip readable and
-	 * reflashable.
 	 */
 	flash_mt25q: mt25q@0 {
 		TT_SPI_FLASH_COMMON
@@ -57,61 +58,10 @@
 		write-command = <0x3e>; /* 1-4-4 extended quad input page program */
 	};
 
-	flash_mx25u: mx25u@0 {
-		TT_SPI_FLASH_COMMON
-		jedec-id = [c2 25 3a]; /* Macronix MX25U51245G */
-		mspi-io-mode = "MSPI_IO_MODE_QUAD_1_4_4";
-		/* Quad commands are ignored unless the non-volatile QE bit
-		 * is set; it is written on first boot and only read
-		 * thereafter.
-		 */
-		quad-enable-requirements = "S1B6";
-		read-command = <0xec>;
-		/* Fixed 6 cycles between address and data: a mode byte in
-		 * the first 2, then 4 dummy cycles.
-		 */
-		rx-mode-cycles = <2>;
-		rx-dummy = <4>;
-		write-command = <0x3e>;
-	};
-
-	flash_gd25lf: gd25lf@0 {
-		TT_SPI_FLASH_COMMON
-		jedec-id = [c8 63 1a]; /* GigaDevice GD25LF512MF */
-		mspi-io-mode = "MSPI_IO_MODE_QUAD_1_4_4";
-		quad-enable-requirements = "NONE"; /* no QE bit */
-		read-command = <0xec>;
-		/* Factory-default read latency (DC=0 in SR3): a mode byte in
-		 * the first 2 cycles, then 4 dummy cycles. A chip whose
-		 * non-volatile DC bits were reconfigured for 8 or 10 cycles
-		 * is not supported.
-		 */
-		rx-mode-cycles = <2>;
-		rx-dummy = <4>;
-		/* No 3Eh (1-4-4) page program; use 34h (1-1-4). Only the
-		 * address phase is slower; page program time dominates.
-		 */
-		write-command = <0x34>;
-		write-io-mode = "MSPI_IO_MODE_QUAD_1_1_4";
-	};
-
-	flash_w25q: w25q@0 {
-		TT_SPI_FLASH_COMMON
-		jedec-id = [ef 60 20]; /* Winbond W25Q51RW-Q/-N, W25Q512NW-IQ/IN */
-		mspi-io-mode = "MSPI_IO_MODE_QUAD_1_4_4";
-		/* QE is non-volatile and factory-set on the supported
-		 * variants; the driver repairs a part that arrives with it
-		 * cleared.
-		 */
-		quad-enable-requirements = "S2B1v6";
-		read-command = <0xec>;
-		/* A mode byte in the first 2 cycles, then 4 dummy cycles */
-		rx-mode-cycles = <2>;
-		rx-dummy = <4>;
-		write-command = <0x34>; /* no 3Eh (1-4-4); 34h (1-1-4) */
-		write-io-mode = "MSPI_IO_MODE_QUAD_1_1_4";
-	};
-
+	/* flash_single_io omits jedec-id and so accepts any chip, as a slow
+	 * universal fallback that keeps an unrecognized chip readable and
+	 * reflashable. Keep it last in flash-devices.
+	 */
 	flash_single_io: flash@0 {
 		TT_SPI_FLASH_COMMON
 		/* No jedec-id: accepts any chip. The driver defaults for
@@ -131,8 +81,7 @@
 	spi_flash: flash-mux {
 		compatible = "tenstorrent,flash-mux";
 		status = "okay";
-		flash-devices = <&flash_mt25q &flash_mx25u &flash_gd25lf
-				 &flash_w25q &flash_single_io>;
+		flash-devices = <&flash_mt25q &flash_single_io>;
 
 		#address-cells = <1>;
 		#size-cells = <1>;
