@@ -1,0 +1,319 @@
+# Copyright (c) 2026 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Firmware size tracking.
+#
+# This never builds anything. build-fw.yml already uploads zephyr.elf,
+# zephyr.dts and .config for every image of every board, so all sizes are
+# recovered from artifacts that exist anyway.
+#
+# It runs on workflow_run rather than as a job inside build-fw.yml for two
+# reasons: it needs write access to post a PR comment and to push the data
+# branch, which a fork PR's own job never gets; and it must be able to ingest
+# older runs during the daily sweep. This mirrors produce-data.yml.
+#
+# Security note: the artifacts under analysis may come from an untrusted fork,
+# while this workflow holds write permissions. It therefore checks out THIS
+# repository's default branch (never the PR head) and never executes anything
+# from the artifacts -- they are only parsed, as ELF and devicetree data.
+
+name: Firmware Size
+
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Build run id to analyse"
+        required: true
+        type: string
+  schedule:
+    # Daily sweep. Artifacts expire after 90 days, so a measurement only
+    # becomes permanent once it is committed to the data branch.
+    - cron: "40 4 * * *"
+
+permissions:
+  contents: read
+
+env:
+  DATA_BRANCH: firmware-size-data
+  PYTHONUNBUFFERED: "1"
+
+concurrency:
+  # Serialised: every run may append a commit to the same data branch.
+  group: firmware-size-data
+  cancel-in-progress: false
+
+jobs:
+  analyse:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Check out tooling
+        # Deliberately the default branch, not the PR head.
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check pyelftools pyyaml
+
+      - name: Fetch devicetree tooling
+        # Only scripts/dts/python-devicetree is needed, pinned to the same
+        # Zephyr revision the firmware was built against.
+        run: |
+          rev=$(python3 -c "
+          import yaml
+          m = yaml.safe_load(open('west.yml'))['manifest']
+          print(next(p['revision'] for p in m['projects'] if p['name'] == 'zephyr'))")
+          echo "Zephyr revision: $rev"
+          git clone --filter=blob:none --no-checkout --depth 1 \
+            https://github.com/tenstorrent/zephyr-fork.git zephyr
+          git -C zephyr sparse-checkout set --cone scripts/dts/python-devicetree
+          git -C zephyr fetch --depth 1 origin "$rev"
+          git -C zephyr checkout FETCH_HEAD
+          echo "ZEPHYR_BASE=$GITHUB_WORKSPACE/zephyr" >> "$GITHUB_ENV"
+
+      - name: Resolve the build run
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          run_id="$RUN_ID"
+          meta=$(gh api "/repos/$REPO/actions/runs/$run_id")
+          head_sha=$(jq -r .head_sha <<<"$meta")
+          head_branch=$(jq -r .head_branch <<<"$meta")
+          event=$(jq -r .event <<<"$meta")
+
+          # A merge-queue run's head sha is the queue candidate, not the commit
+          # that lands on main. Map it back through the PR it came from.
+          attribute="$head_sha"
+          pr=""
+          case "$head_branch" in
+            gh-readonly-queue/*)
+              pr=$(sed -E 's:.*/pr-([0-9]+)-.*:\1:' <<<"$head_branch")
+              merged=$(gh api "/repos/$REPO/pulls/$pr" --jq '.merge_commit_sha // empty' || true)
+              if [ -n "$merged" ] && git cat-file -e "$merged^{commit}" 2>/dev/null; then
+                attribute="$merged"
+              fi
+              ;;
+          esac
+
+          if [ "$event" = "pull_request" ]; then
+            pr=$(gh api "/repos/$REPO/commits/$head_sha/pulls" --jq '.[0].number // empty' || true)
+          fi
+
+          {
+            echo "run_id=$run_id"
+            echo "head_sha=$head_sha"
+            echo "head_branch=$head_branch"
+            echo "event=$event"
+            echo "attribute=$attribute"
+            echo "pr=$pr"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download firmware artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+        run: |
+          mkdir -p artifacts
+          gh run download "$RUN_ID" -p 'firmware-*' -D artifacts \
+            || echo "no firmware-* artifacts on this run"
+          find artifacts -maxdepth 3 -name 'build-*' -type d | sort
+
+      - name: Collect sizes
+        id: collect
+        env:
+          ATTRIBUTE: ${{ steps.run.outputs.attribute }}
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r d; do args+=(--build-dir "$d"); done \
+            < <(find artifacts -maxdepth 3 -name 'build-*' -type d | sort)
+          if [ ${#args[@]} -eq 0 ]; then
+            echo "collected=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 scripts/size/collect.py "${args[@]}" \
+            --build-name smc-sysbuild \
+            --ref "$ATTRIBUTE" \
+            --source-kind ci-artifact \
+            --run-id "$RUN_ID" \
+            -o head.json
+          echo "collected=true" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve baseline
+        if: steps.collect.outputs.collected == 'true'
+        id: baseline
+        env:
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+          BASE_REF: ${{ github.event.workflow_run.pull_requests[0].base.sha || 'origin/main' }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$DATA_BRANCH:$DATA_BRANCH" 2>/dev/null || \
+            echo "data branch does not exist yet"
+          base_ref="${BASE_REF:-origin/main}"
+          merge_base=$(git merge-base "$HEAD_SHA" "$base_ref" \
+            2>/dev/null || git rev-parse "$base_ref")
+          if python3 scripts/size/store.py nearest --from "$merge_base" -o base.json \
+               > nearest.txt 2>/dev/null; then
+            found=$(cat nearest.txt)
+            echo "found=$found" >> "$GITHUB_OUTPUT"
+            if [ "$found" != "$merge_base" ]; then
+              echo "note=Baseline is \`${found:0:12}\`, the newest stored ancestor; there is no stored measurement for the merge-base \`${merge_base:0:12}\`." >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "found=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build report
+        if: steps.collect.outputs.collected == 'true'
+        env:
+          BASE_NOTE: ${{ steps.baseline.outputs.note }}
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ -f base.json ]; then
+            extra+=(--base base.json)
+          fi
+          if [ -n "${BASE_NOTE:-}" ]; then
+            extra+=(--base-note "$BASE_NOTE")
+          fi
+          python3 scripts/size/report.py --head head.json "${extra[@]}" \
+            --annotate -o report.md
+          {
+            echo "<!-- firmware-size-report -->"
+            cat report.md
+          } > comment.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: steps.collect.outputs.collected == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-report
+          path: |
+            head.json
+            report.md
+
+      - name: Comment on the pull request
+        if: steps.collect.outputs.collected == 'true' && steps.run.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.run.outputs.pr }}
+        run: |
+          set -euo pipefail
+          existing=$(gh api "/repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- firmware-size-report -->"))][0].id // empty')
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "/repos/$REPO/issues/comments/$existing" -F body=@comment.md >/dev/null
+            echo "updated comment $existing"
+          else
+            gh api -X POST "/repos/$REPO/issues/$PR/comments" -F body=@comment.md >/dev/null
+            echo "created comment"
+          fi
+
+      - name: Record the measurement
+        # Only history that lands on main is worth keeping permanently. PR runs
+        # get a comment and an artifact, nothing more.
+        if: >-
+          steps.collect.outputs.collected == 'true' &&
+          (steps.run.outputs.event == 'merge_group' ||
+           (steps.run.outputs.event == 'push' &&
+            (steps.run.outputs.head_branch == 'main' ||
+             startsWith(steps.run.outputs.head_branch, 'v'))))
+        run: |
+          set -euo pipefail
+          git fetch origin "$DATA_BRANCH:$DATA_BRANCH" 2>/dev/null || true
+          python3 scripts/size/store.py --branch "$DATA_BRANCH" put --data head.json
+          git push origin "refs/heads/$DATA_BRANCH:refs/heads/$DATA_BRANCH"
+
+  sweep:
+    # Catch runs the event-driven path missed, before their artifacts expire.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check pyelftools pyyaml
+
+      - name: Fetch devicetree tooling
+        run: |
+          rev=$(python3 -c "
+          import yaml
+          m = yaml.safe_load(open('west.yml'))['manifest']
+          print(next(p['revision'] for p in m['projects'] if p['name'] == 'zephyr'))")
+          git clone --filter=blob:none --no-checkout --depth 1 \
+            https://github.com/tenstorrent/zephyr-fork.git zephyr
+          git -C zephyr sparse-checkout set --cone scripts/dts/python-devicetree
+          git -C zephyr fetch --depth 1 origin "$rev"
+          git -C zephyr checkout FETCH_HEAD
+          echo "ZEPHYR_BASE=$GITHUB_WORKSPACE/zephyr" >> "$GITHUB_ENV"
+
+      - name: Ingest any missing runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$DATA_BRANCH:$DATA_BRANCH" 2>/dev/null || true
+          python3 scripts/size/store.py --branch "$DATA_BRANCH" list > stored.txt || true
+
+          gh run list --workflow Build --limit 60 --json databaseId,headSha,headBranch,event,conclusion \
+            --jq '.[] | select(.conclusion == "success")
+                      | select(.event == "merge_group" or .headBranch == "main")
+                      | "\(.databaseId) \(.headSha)"' > runs.txt || true
+
+          ingested=0
+          while read -r run_id head_sha; do
+            [ -n "$run_id" ] || continue
+            if grep -q "${head_sha:0:12}" stored.txt; then continue; fi
+            echo "::group::run $run_id ($head_sha)"
+            rm -rf artifacts && mkdir -p artifacts
+            if ! gh run download "$run_id" -p 'firmware-*' -D artifacts; then
+              echo "artifacts gone, skipping"; echo "::endgroup::"; continue
+            fi
+            args=()
+            while IFS= read -r d; do args+=(--build-dir "$d"); done \
+              < <(find artifacts -maxdepth 3 -name 'build-*' -type d | sort)
+            if [ ${#args[@]} -gt 0 ] && git cat-file -e "$head_sha^{commit}" 2>/dev/null; then
+              python3 scripts/size/collect.py "${args[@]}" --build-name smc-sysbuild \
+                --ref "$head_sha" --source-kind ci-artifact --run-id "$run_id" -o sweep.json
+              python3 scripts/size/store.py --branch "$DATA_BRANCH" put --data sweep.json
+              ingested=$((ingested + 1))
+            fi
+            echo "::endgroup::"
+          done < runs.txt
+
+          echo "ingested $ingested run(s)"
+          if [ "$ingested" -gt 0 ]; then
+            git push origin "refs/heads/$DATA_BRANCH:refs/heads/$DATA_BRANCH"
+          fi
