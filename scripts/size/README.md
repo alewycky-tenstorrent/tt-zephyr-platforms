@@ -184,6 +184,26 @@ west sdk install --version 0.17.0 -b <base> -t arc-zephyr-elf arm-zephyr-eabi
 west sdk install --version 0.17.4 -b <base> -t arc-zephyr-elf arm-zephyr-eabi
 ```
 
+### Zephyr patches
+
+Up to v19.4.2 the manifest pointed at upstream `zephyrproject-rtos/zephyr` and
+the tree carried `zephyr/patches/*.patch` applied on top; v19.5.0 switched to
+`tenstorrent/zephyr-fork` and deleted them. `backfill.py` runs `west patch
+apply` for any ref that still has `zephyr/patches.yml`, exactly as the repo's
+own `refresh_zephyr` helper does.
+
+Without it those refs fail with what looks like a firmware bug:
+
+```
+devicetree error: 'read-frequency' appears in /soc/spi@80070000/eeprom@0 ...
+but is not declared in 'properties:' in jedec,mspi-nor.yaml
+```
+
+— the property is added by `mspi-dw-nor-fixes.patch`, so the binding is simply
+unpatched. Patches leave their modules dirty, so every west project except the
+manifest repo is `git reset --hard` + `git clean`ed before each `west update`;
+otherwise the next ref cannot move them.
+
 ### Old tags and modern CMake
 
 Zephyr 4.1 and earlier open `FindZephyr-sdk.cmake` with

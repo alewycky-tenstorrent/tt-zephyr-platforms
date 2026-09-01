@@ -187,6 +187,47 @@ def build_env(workspace: Path, sdk: Path | None) -> dict[str, str]:
     return env
 
 
+def clean_projects(workspace: Path, manifest_repo: Path, env: dict[str, str]) -> None:
+    """
+    Reset every west project except the manifest repo.
+
+    `west patch apply` leaves the patched modules with uncommitted changes, so
+    without this the next ref's `west update` refuses to move them. This mirrors
+    the `refresh_zephyr` helper in the repo's own `activate` script.
+    """
+    listed = subprocess.run(["west", "list", "-f", "{abspath}"], cwd=str(workspace),
+                            capture_output=True, text=True, check=False, env=env)
+    for line in listed.stdout.splitlines():
+        path = Path(line.strip())
+        if not path.is_dir() or path == manifest_repo or not (path / ".git").exists():
+            continue
+        run(["git", "-C", str(path), "reset", "--hard", "-q"], cwd=workspace,
+            check=False, quiet=True, env=env)
+        run(["git", "-C", str(path), "clean", "-dfq"], cwd=workspace,
+            check=False, quiet=True, env=env)
+
+
+def apply_patches(workspace: Path, manifest_repo: Path, env: dict[str, str]) -> bool:
+    """
+    Run `west patch apply` for refs that carry patches.
+
+    Up to v19.4.2 the manifest pointed at upstream zephyrproject-rtos/zephyr and
+    the tree carried zephyr/patches/*.patch on top; v19.5.0 switched to
+    tenstorrent/zephyr-fork and deleted them. Skipping this step leaves the
+    devicetree bindings unpatched, and the build dies with e.g.
+
+        devicetree error: 'read-frequency' appears in /soc/spi@80070000/eeprom@0
+        ... but is not declared in 'properties:' in jedec,mspi-nor.yaml
+
+    which reads like a firmware bug rather than a missing build step.
+    """
+    if not (manifest_repo / "zephyr" / "patches.yml").is_file():
+        return True
+    print("    applying zephyr patches", flush=True)
+    rc = run(["west", "patch", "apply"], cwd=workspace, check=False, quiet=True, env=env)
+    return rc == 0
+
+
 def git_out(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args],
                           check=True, capture_output=True, text=True).stdout.strip()
@@ -259,10 +300,19 @@ def process_ref(
 
     run(["git", "-C", str(manifest_repo), "checkout", "--detach", "--force", ref], cwd=workspace)
     env = build_env(workspace, None)
+
+    # Patches from the previous ref leave their modules dirty, which would make
+    # `west update` refuse to move them. Reset before updating.
+    clean_projects(workspace, manifest_repo, env)
+
     update = ["west", "update", "--narrow"]
     if path_cache is not None:
         update += ["--path-cache", str(path_cache)]
     run(update, cwd=workspace, quiet=True, env=env)
+
+    if not apply_patches(workspace, manifest_repo, env):
+        print(f"    ! {ref}: west patch apply failed, recording a gap", file=sys.stderr)
+        return False
 
     # zephyr/SDK_VERSION is only correct once west update has moved zephyr to
     # this ref's manifest revision.
