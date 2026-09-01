@@ -122,14 +122,77 @@ happens.
 
 ```sh
 scripts/size/backfill.py --workspace ~/bh-zephyr-backfill --list
-scripts/size/backfill.py --workspace ~/bh-zephyr-backfill --path-cache ~/west-cache
+scripts/size/backfill.py --workspace ~/bh-zephyr-backfill --path-cache ~/bh-zephyr
 ```
+
+`--path-cache` takes a directory laid out like a west workspace and is matched
+per project path, so your existing checkout is the natural cache: `west update`
+then clones `zephyr`, `bootloader/mcuboot` and the modules locally instead of
+over the network, which takes seconds. It is also where the tool looks for
+`zephyr-sdk-*` installs.
 
 It mutates a west workspace, so point it at a dedicated checkout, not one you
 are working in. Refs are processed serially because each needs its own
-`west update`. Failures are recorded as gaps and the run continues — old tags
-are not guaranteed to build with the current SDK. Re-running skips refs already
-in the index.
+`west update`. Failures are recorded as gaps and the run continues. Re-running
+skips refs already in the index.
+
+### Environment
+
+`backfill.py` sets `ZEPHYR_BASE` for every `west` call itself, pinned to
+`--workspace`, rather than inheriting it. This matters: the repo's `activate`
+exports `ZEPHYR_BASE="$(west topdir)/zephyr"` **once**, at activation time, so a
+shell activated in your working checkout aims every later build at the wrong
+Zephyr — and sourcing `activate` outside any workspace silently yields
+`ZEPHYR_BASE=/zephyr` and returns 0.
+
+A stale `ZEPHYR_BASE` does not fail cleanly. Sysbuild resolves its own
+boilerplate from the workspace it was invoked in, while each sub-image resolves
+`find_package(Zephyr)` through `ZEPHYR_BASE`, so the build silently mixes two
+checkouts — app sources from one, board defconfigs from the other — and dies in
+Kconfig on a symbol one tree has and the other does not. Because the tool pins
+it, you do not need to activate anything in particular before running a
+backfill.
+
+### Zephyr SDK
+
+Old tags pin old Zephyr revisions that want old SDKs — `v18.2.0` asks for
+0.17.0, the v18.12–v19.8 range for 0.17.4, current `main` for 1.0.1. Rather than
+depend on which SDKs happen to be registered in `~/.cmake/packages`,
+`backfill.py` finds `zephyr-sdk-*` installs (under `--workspace`, the
+`--path-cache` workspace, `$HOME`, `/opt`, or an explicit `--sdk-dir`), reads
+the ref's `zephyr/SDK_VERSION`, and points `ZEPHYR_SDK_INSTALL_DIR` at a
+compatible one.
+
+**An exact match is required.** A merely compatible SDK configures fine and
+then dies deep in the build with `lib/libc/picolibc/locks.c: error: conflicting
+types for '__retarget_lock_init_recursive'`, because picolibc's retarget lock
+signatures changed between SDK releases. Rather than spend twenty minutes
+producing that, a ref whose exact SDK is missing gaps out in about three
+seconds with the command to fix it. `--allow-sdk-mismatch` opts back in.
+
+Compatibility, for what it is worth, follows `Zephyr-sdkConfigVersion.cmake`:
+an SDK older than requested is rejected, and from 1.0 the SDK declares
+`ZEPHYR_SDK_MINIMUM_COMPATIBLE_VERSION 1.0` and refuses anything older — so
+**SDK 1.0.1 cannot serve a tree asking for 0.17.4** despite being newer.
+
+Across the 43 release tags the requirement splits roughly: 0.17.0 for v18.2–
+v18.5, 0.17.2 for v18.6–v18.11, 0.17.4 for v18.12–v19.10, and 1.0.1 from
+v19.11 on. Install what you are missing:
+
+```sh
+west sdk install --version 0.17.0 -b <base> -t arc-zephyr-elf arm-zephyr-eabi
+west sdk install --version 0.17.4 -b <base> -t arc-zephyr-elf arm-zephyr-eabi
+```
+
+### Old tags and modern CMake
+
+Zephyr 4.1 and earlier open `FindZephyr-sdk.cmake` with
+`if(("zephyr" STREQUAL ${ZEPHYR_TOOLCHAIN_VARIANT}) OR ...`, which expands to
+`("zephyr" STREQUAL )` when that variable is unset. CMake 4.x rejects the
+malformed condition outright where older CMake tolerated it, so on a modern
+host every pre-4.2 tag failed to configure for a reason unrelated to the
+firmware. `backfill.py` defaults `ZEPHYR_TOOLCHAIN_VARIANT=zephyr`, which makes
+the expression well-formed again.
 
 Locally built numbers will not match CI byte for byte (different SDK, different
 host, unsigned images), so they are tagged `source.kind = local-backfill`. Do
